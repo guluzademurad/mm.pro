@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Geometry Tree Dash</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+        }
+
+        body {
+            background-color: #0b130b;
+            color: #fff;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        h1 {
+            margin-bottom: 10px;
+            font-size: 2.5rem;
+            color: #4ef05d;
+            text-shadow: 0 0 10px rgba(78, 240, 93, 0.5);
+            text-transform: uppercase;
+        }
+
+        .game-container {
+            position: relative;
+            box-shadow: 0 0 30px rgba(0, 0, 0, 0.7), 0 0 15px rgba(78, 240, 93, 0.2);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        canvas {
+            background: linear-gradient(to bottom, #142416, #09120a);
+            display: block;
+        }
+
+        .ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.6);
+            transition: opacity 0.3s ease;
+        }
+
+        .hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .btn {
+            background-color: #4ef05d;
+            border: none;
+            color: #000;
+            padding: 15px 40px;
+            font-size: 1.5rem;
+            font-weight: bold;
+            cursor: pointer;
+            border-radius: 4px;
+            text-transform: uppercase;
+            box-shadow: 0 5px 0 #2b9e38;
+            transition: all 0.1s ease;
+        }
+
+        .btn:active {
+            transform: translateY(4px);
+            box-shadow: 0 1px 0 #2b9e38;
+        }
+
+        .info {
+            margin-top: 15px;
+            font-size: 1rem;
+            color: #a0b0a0;
+            text-align: center;
+        }
+
+        #scoreBoard {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            font-size: 1.3rem;
+            font-weight: bold;
+            color: #4ef05d;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Geometry Tree Dash</h1>
+    
+    <div class="game-container">
+        <canvas id="gameCanvas" width="800" height="400"></canvas>
+        <div id="scoreBoard">Счет: 0 | Рекорд: 0</div>
+        
+        <!-- Меню старта / проигрыша -->
+        <div id="uiLayer" class="ui-layer">
+            <h2 id="menuTitle" style="font-size: 2rem; margin-bottom: 20px; color: #ff4e4e;">КРАШ!</h2>
+            <button id="startBtn" class="btn">Играть</button>
+            <p class="info">Нажимай КЛИК МЫШКИ или КЛАВИШУ ПРОБЕЛ, чтобы прыгать</p>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const uiLayer = document.getElementById('uiLayer');
+        const startBtn = document.getElementById('startBtn');
+        const menuTitle = document.getElementById('menuTitle');
+        const scoreBoard = document.getElementById('scoreBoard');
+
+        // Игровые настройки
+        const GRAVITY = 1.4;
+        const FLOOR_Y = 320;
+        
+        let isPlaying = false;
+        let score = 0;
+        let highScore = localStorage.getItem('treeDashHighScore') || 0;
+        let gameSpeed = 6;
+        let obstacles = [];
+        let spawnTimer = 0;
+
+        // Объект игрока (Кубик)
+        const player = {
+            x: 100,
+            y: FLOOR_Y - 40,
+            width: 40,
+            height: 40,
+            vy: 0,
+            jumpForce: -17,
+            isGrounded: true,
+            angle: 0, // Угол вращения кубика в полете
+            
+            reset() {
+                this.y = FLOOR_Y - this.height;
+                this.vy = 0;
+                this.isGrounded = true;
+                this.angle = 0;
+            },
+            
+            jump() {
+                if (this.isGrounded) {
+                    this.vy = this.jumpForce;
+                    this.isGrounded = false;
+                }
+            },
+            
+            update() {
+                // Применяем гравитацию
+                this.vy += GRAVITY;
+                this.y += this.vy;
+                
+                // Проверка приземления на пол
+                if (this.y >= FLOOR_Y - this.height) {
+                    this.y = FLOOR_Y - this.height;
+                    this.vy = 0;
+                    this.isGrounded = true;
+                    
+                    // Плавное выравнивание кубика при приземлении к ближайшим 90 градусам
+                    const targetAngle = Math.round(this.angle / (Math.PI / 2)) * (Math.PI / 2);
+                    this.angle += (targetAngle - this.angle) * 0.3;
+                } else {
+                    // Кубик крутится в воздухе, как в оригинальном Geometry Dash
+                    this.angle += 0.09;
+                }
+            },
+            
+            draw() {
+                ctx.save();
+                // Переносим контекст в центр кубика для правильного вращения
+                ctx.translate(this.x + this.width/2, this.y + this.height/2);
+                ctx.rotate(this.angle);
+                
+                // Рисуем кубик (неоновый зеленый со стильным лицом)
+                ctx.fillStyle = '#4ef05d';
+                ctx.fillRect(-this.width/2, -this.height/2, this.width, this.height);
+                
+                // Контур кубика
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 3;
+                ctx.strokeRect(-this.width/2, -this.height/2, this.width, this.height);
+                
+                // Глаза (иконка кубика)
+                ctx.fillStyle = '#000';
+                ctx.fillRect(-12, -12, 8, 8);
+                ctx.fillRect(4, -12, 8, 8);
+                ctx.fillRect(-10, 6, 20, 4); // рот
+                
+                ctx.restore();
+            }
+        };
+
+        // Класс препятствий
+        class Obstacle {
+            constructor(type) {
+                this.type = type; // 'tree' (ель-шип) или 'stump' (квадратный пень)
+                this.x = canvas.width + 50;
+                this.width = type === 'tree' ? 40 : 35;
+                this.height = type === 'tree' ? 50 : 35;
+                this.y = FLOOR_Y - this.height;
+            }
+
+            update() {
+                this.x -= gameSpeed;
+            }
+
+            draw() {
+                ctx.save();
+                if (this.type === 'tree') {
+                    // Рисуем ель (опасный треугольный шип)
+                    ctx.fillStyle = '#1e6f28';
+                    ctx.beginPath();
+                    ctx.moveTo(this.x + this.width / 2, this.y); // Вершина
+                    ctx.lineTo(this.x, this.y + this.height); // Левый угол
+                    ctx.lineTo(this.x + this.width, this.y + this.height); // Правый угол
+                    ctx.closePath();
+                    ctx.fill();
+                    
+                    // Обводка дерева
+                    ctx.strokeStyle = '#6ef07d';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                } else {
+                    // Рисуем деревянный пень (квадратный блок)
+                    ctx.fillStyle = '#5c4033';
+                    ctx.fillRect(this.x, this.y, this.width, this.height);
+                    ctx.strokeStyle = '#b58863';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(this.x, this.y, this.width, this.height);
+                }
+                ctx.restore();
+            }
+        }
+
+        // Управление (Мышь, Тач, Пробел)
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' || e.code === 'ArrowUp') {
+                if (isPlaying) player.jump();
+                else if (uiLayer.style.opacity !== '0') startGame();
+            }
+        });
+
+        canvas.addEventListener('mousedown', () => {
+            if (isPlaying) player.jump();
+        });
+
+        // Инициализация стартового экрана
+        menuTitle.textContent = "Geometry Tree Dash";
+        menuTitle.style.color = "#4ef05d";
+        updateScoreBoard();
+
+        function startGame() {
+            obstacles = [];
+            score = 0;
+            gameSpeed = 6;
+            player.reset();
+            isPlaying = true;
+            uiLayer.classList.add('hidden');
+        }
+
+        function gameOver() {
+            isPlaying = false;
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem('treeDashHighScore', highScore);
+            }
+            menuTitle.textContent = "КРАШ!";
+            menuTitle.style.color = "#ff4e4e";
+            startBtn.textContent = "Перезапуск";
+            uiLayer.classList.remove('hidden');
+        }
+
+        function updateScoreBoard() {
+            scoreBoard.textContent = `Счет: ${Math.floor(score)} | Рекорд: ${Math.floor(highScore)}`;
+        }
+
+        function checkCollision(rect1, rect2) {
+            // Немного уменьшаем хитбоксы препятствий для честности игры (как в оригинале)
+            const padding = 4;
+            return (
+                rect1.x < rect2.x + rect2.width - padding &&
+                rect1.x + rect1.width > rect2.x + padding &&
+                rect1.y < rect2.y + rect2.height - padding &&
+                rect1.y + rect1.height > rect2.y + padding
+            );
+        }
+
+        // Главный игровой цикл
+        function gameLoop() {
+            // Очистка экрана
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Рисуем бэкграундную сетку/линии (для ощущения скорости)
+            ctx.strokeStyle = 'rgba(78, 240, 93, 0.05)';
+            ctx.lineWidth = 1;
+            for (let i = 0; i < canvas.width; i += 40) {
+                let shift = (i - (score * 2)) % canvas.width;
+                if (shift < 0) shift += canvas.width;
+                ctx.beginPath();
+                ctx.moveTo(shift, 0);
+                ctx.lineTo(shift, FLOOR_Y);
+                ctx.stroke();
+            }
+
+            // Рисуем пол лесной тропы
+            ctx.fillStyle = '#0f1f11';
+            ctx.fillRect(0, FLOOR_Y, canvas.width, canvas.height - FLOOR_Y);
+            ctx.strokeStyle = '#4ef05d';
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(0, FLOOR_Y);
+            ctx.lineTo(canvas.width, FLOOR_Y);
+            ctx.stroke();
+
+            if (isPlaying) {
+                score += 0.15; // Увеличение очков со временем
+                gameSpeed += 0.001; // Плавное нарастание сложности
+                updateScoreBoard();
+
+                player.update();
+
+                // Спавн препятствий
+                spawnTimer--;
+                if (spawnTimer <= 0) {
+                    const type = Math.random() > 0.5 ? 'tree' : 'stump';
+                    obstacles.push(new Obstacle(type));
+                    // Случайный интервал между спавном деревьев
+                    spawnTimer = Math.floor(Math.random() * 40) + 50; 
+                }
+
+                // Обновление и проверка препятствий
+                for (let i = obstacles.length - 1; i >= 0; i--) {
+                    obstacles[i].update();
+                    obstacles[i].draw();
+
+                    // Проверка столкновения кубика с деревом
+                    if (checkCollision(player, obstacles[i])) {
+                        gameOver();
+                    }
+
+                    // Удаляем препятствия, улетевшие за экран
+                    if (obstacles[i].x < -50) {
+                        obstacles.splice(i, 1);
+                    }
+                }
+            } else {
+                // Если игра на паузе, просто отрисовываем препятствия статично
+                obstacles.forEach(obs => obs.draw());
+            }
+
+            player.draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Запуск петли анимации
+        gameLoop();
+    </script>
+</body>
+</html>
